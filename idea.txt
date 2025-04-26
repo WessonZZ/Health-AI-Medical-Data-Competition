@@ -1,0 +1,78 @@
+
+参考《FIRST: Teach A Reliable Large Language Model Through Efficient Trustworthy Distillation-2024》进行知识蒸馏的方法，不拟合教师模型的所有token的logit，而是只拟合top5 token的logit（但是需要较大的内存去存储teacher的logit）
+
+
+--进行两阶段prompt：第一轮，让Qwen2.5去判断疾病，第二轮，让Qwen2.5根据疾病，寻找判断依据，如果疾病判断有误，给出新的判断，然后给出依据
+--去huggingface上找医疗数据，然后让LLM/医疗数据微调的模型去根据格式标注，进行SFT/DPO训练
+
+参考《Self-Instruct- Aligning Language Models with Self-Generated Instructions-2022》的数据生成过程
+
+
+微调考虑两种方法：
+1、微调一个模型：疾病和依据一起训
+2、微调两个模型：一个判断疾病，一个给出依据
+
+
+📅历史记录：
+提交时间====版本====方案===============================得分
+ 2/26      v1   zero_shot                           1765
+ 2/27      v2   few_shot                            1799
+ 2/28      v3   两阶段（疾病->诊断依据）+ few_shot      1603
+ 3/2       v4   LLM prompt + few_shot               1914 分析一下和之前版本的区别：疾病更多，依据更长？
+ 3/3       v5   deepseek V3 + few_shot              2097 说明更大模型的能力是更强的，考虑使用deepseek蒸馏数据去微调qwen
+ 3/4       v6   deepseek V3 + 两阶段 + few_shot      2267 
+ 3/9       v7   蒸馏数据6300 lora 微调 + zero_shot    2105
+ 3/10      v8   deepseek V3 + LLM prompt + few_shot 2125   看看效果，如果效果可以，可以把测试数据的3000条拿来训练  
+ 3/12      v9   上面lora微调 + few_shot 新5000条         2746
+ 3/13      v10  将所有8000条数据标注后 共1.4w条数据 lora 微调 + few_shot   2762           默认最后一步cp              
+ 3/14      v11  可以考虑在第一版微调的模型的基础上继续拿后面8000条数据进行微调  2810           最后一步cp
+ 3/16      v12  在v11的训练的基础上取第200步的cp进行few_shot预测            2811
+ 3/17      v11_1 v11的基础上对疾病的标号处理一下看看分数的变化                              全分号
+ 3/18      v11_2 v11的基础上对疾病的标号处理一下看看分数的变化                              无分号
+ 3/19      v13  让deepseek对5000条样本一次性生成，不追求理由的长度，继续v11/v12的基础上微调
+
+
+deepseek 两阶段 few_shot 5000条样本：平均5.4个reason，222个字符，2.2个disease
+
+
+特征的平均字符数：258
+
+
+v1: 平均1.4个reason，169个字符，1.0个disease   1765
+v2: 平均2.6个reason，193个字符，1.1个disease   1799
+v3: 平均5.1个reason，249个字符，1.0个disease   1603
+v4: 平均2.5个reason，143个字符，1.8个disease   1914
+v5: 平均3.8个reason，147个字符，1.5个disease   2097
+v6: 平均4.8个reason，195个字符，2.3个disease   2267
+v7: 平均5.2个reason，245个字符，2.1个disease   2105
+v8: 平均3.1个reason，121个字符，1.6个disease   2125
+v9: 平均4.9个reason，225个字符，1.9个disease   2746    后5000条  
+v10: 平均4.9个reason，252个字符，1.6个disease  2762
+v11: 平均3.6个reason，179个字符，1.8个disease  2810
+v12: 平均3.6个reason，176个字符，1.8个disease  2811
+
+
+
+########微调#######
+数据集构建：分为三阶段：症状->疾病->理由
+--从deepseek标注的测试集中随机抽取200个 + 从阿里天池额外收集的50个样本作为样本池
+--让Qwen2.5-72B去生成多样化的症状（拿现有的样本池中6个sanple作为示例，4个样本池+2个生成的样本），计算生成的数据与现有数据的相似度（ROUGE-L），高于0.7的被剔除
+--让deepseek根据示例标注疾病，使用前246条数据的随机抽取6个sample
+--再让deepseek去根据示例标注每条数据的依据
+--总共生成约5000条左右数据，最后的数据需要剔除掉原始使用的200条测试集数据
+
+生成的数据集6000条左右：
+特征的平均字符数：368
+平均6.5个reason，309个字符，2.4个disease
+1.4w数据集
+特征的平均字符数：304
+平均5.8个reason，254个字符，2.3个disease
+标注的5k测试集：
+特征的平均字符数：253
+平均5.4个reason，222个字符，2.2个disease
+
+
+训练：
+使用Lora微调Qwen2.5-7B。
+
+
