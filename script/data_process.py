@@ -48,7 +48,7 @@ def data_process(sample, tokenizer, max_seq_length):
     if seq_length < max_seq_length:
         input_ids = input_ids + [eos_token_id] + (max_seq_length - seq_length - 1) * [pad_token_id]
         attention_mask = attention_mask + [1] + (max_seq_length - seq_length - 1) * [0]
-        labels = labels + [eos_token_id] + (max_seq_length - seq_length - 1) * [pad_token_id]
+        labels = labels + [eos_token_id] + (max_seq_length - seq_length - 1) * [-100]
     elif seq_length >= max_seq_length:
         input_ids = input_ids[:max_seq_length - 1] + [eos_token_id]
         attention_mask = attention_mask[:max_seq_length - 1] + [1] 
